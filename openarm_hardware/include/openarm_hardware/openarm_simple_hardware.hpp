@@ -22,6 +22,7 @@
 #include <vector>
 
 #include "hardware_interface/handle.hpp"
+#include "openarm_hardware/gravity_model.hpp"
 #include "hardware_interface/hardware_info.hpp"
 #include "hardware_interface/system_interface.hpp"
 #include "hardware_interface/types/hardware_interface_return_values.hpp"
@@ -120,6 +121,16 @@ class OpenArmHW : public hardware_interface::SystemInterface {
   std::string ee_type_;
   bool hand_;
   bool can_fd_;
+
+  // Gravity feedforward added to the MIT torque term (0 = off, 1 = full model)
+  GravityModel gravity_model_;
+  bool gravity_ready_ = false;
+  double gravity_comp_gain_ = 0.0;
+  std::vector<double> gravity_tau_;
+  // Clamp on the feedforward, well below the peak torque of each motor
+  // (DM8009 x2, DM4340 x2, DM4310 x3)
+  const std::vector<double> GRAVITY_TAU_LIMIT = {15.0, 15.0, 8.0, 8.0,
+                                                 2.5,  2.5,  2.5};
 
   // OpenArm instance
   std::unique_ptr<openarm::can::socket::OpenArm> openarm_;

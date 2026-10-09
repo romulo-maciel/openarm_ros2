@@ -52,12 +52,14 @@ def generate_robot_description(
     use_fake_hardware,
     right_can_interface,
     left_can_interface,
+    gravity_comp_gain,
 ):
     description_package_str = context.perform_substitution(description_package)
     arm_type_str = context.perform_substitution(arm_type)
     use_fake_hardware_str = context.perform_substitution(use_fake_hardware)
     right_can_interface_str = context.perform_substitution(right_can_interface)
     left_can_interface_str = context.perform_substitution(left_can_interface)
+    gravity_comp_gain_str = context.perform_substitution(gravity_comp_gain)
 
     folder_name, file_name = resolve_arm_config(arm_type_str)
 
@@ -75,6 +77,7 @@ def generate_robot_description(
             "ros2_control": "true",
             "left_can_interface": left_can_interface_str,
             "right_can_interface": right_can_interface_str,
+            "gravity_comp_gain": gravity_comp_gain_str,
         },
     ).toprettyxml(indent="  ")
 
@@ -88,6 +91,7 @@ def robot_nodes_spawner(
     right_can_interface,
     left_can_interface,
     arm_prefix,
+    gravity_comp_gain,
 ):
     robot_description = generate_robot_description(
         context,
@@ -96,6 +100,7 @@ def robot_nodes_spawner(
         use_fake_hardware,
         right_can_interface,
         left_can_interface,
+        gravity_comp_gain,
     )
 
     controllers_file_str = context.perform_substitution(controllers_file)
@@ -240,6 +245,10 @@ def generate_launch_description():
         DeclareLaunchArgument("right_can_interface", default_value="can0"),
         DeclareLaunchArgument("left_can_interface", default_value="can1"),
         DeclareLaunchArgument(
+            "gravity_comp_gain", default_value="1.0",
+            description="Gravity feedforward on the real arm (0 = off, 1 = "
+                        "full URDF model). Only openarm_v1.0 uses it."),
+        DeclareLaunchArgument(
             "controllers_file",
             default_value="openarm_bimanual_moveit_controllers.yaml"),
     ]
@@ -253,6 +262,7 @@ def generate_launch_description():
     right_can_interface = LaunchConfiguration("right_can_interface")
     left_can_interface = LaunchConfiguration("left_can_interface")
     arm_prefix = LaunchConfiguration("arm_prefix")
+    gravity_comp_gain = LaunchConfiguration("gravity_comp_gain")
 
     controllers_file = PathJoinSubstitution(
         [FindPackageShare(runtime_config_package), "config",
@@ -269,6 +279,7 @@ def generate_launch_description():
             right_can_interface,
             left_can_interface,
             arm_prefix,
+            gravity_comp_gain,
         ],
     )
 

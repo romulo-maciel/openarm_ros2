@@ -60,6 +60,10 @@ bool OpenArmHW::parse_config(const hardware_interface::HardwareInfo& info) {
     can_fd_ = (value == "true");
   }
 
+  it = info.hardware_parameters.find("gravity_comp_gain");
+  gravity_comp_gain_ =
+      (it != info.hardware_parameters.end()) ? std::stod(it->second) : 0.0;
+
   // Parse control gains
   for (size_t i = 1; i <= ARM_DOF; ++i) {
     it = info.hardware_parameters.find("kp" + std::to_string(i));
@@ -87,9 +91,11 @@ bool OpenArmHW::parse_config(const hardware_interface::HardwareInfo& info) {
   }
 
   RCLCPP_INFO(rclcpp::get_logger("OpenArmHW"),
-              "Configuration: CAN=%s, arm_prefix=%s, hand=%s, can_fd=%s",
+              "Configuration: CAN=%s, arm_prefix=%s, hand=%s, can_fd=%s, "
+              "gravity_comp_gain=%.2f",
               can_interface_.c_str(), arm_prefix_.c_str(),
-              hand_ ? "enabled" : "disabled", can_fd_ ? "enabled" : "disabled");
+              hand_ ? "enabled" : "disabled", can_fd_ ? "enabled" : "disabled",
+              gravity_comp_gain_);
   return true;
 }
 
@@ -141,6 +147,17 @@ hardware_interface::CallbackReturn OpenArmHW::on_init(
                  "Generated %zu joint names, expected %zu", joint_names_.size(),
                  expected_joints);
     return CallbackReturn::ERROR;
+  }
+
+  if (gravity_comp_gain_ != 0.0) {
+    std::string error;
+    gravity_ready_ =
+        gravity_model_.init(info.original_xml, arm_prefix_, ARM_DOF, error);
+    // Not fatal: the arm still works as a plain PD, only with the sag back.
+    if (!gravity_ready_) {
+      RCLCPP_ERROR(rclcpp::get_logger("OpenArmHW"),
+                   "Gravity compensation disabled: %s", error.c_str());
+    }
   }
 
   // Initialize OpenArm with configurable CAN-FD setting
@@ -284,11 +301,23 @@ hardware_interface::return_type OpenArmHW::read(
 
 hardware_interface::return_type OpenArmHW::write(
     const rclcpp::Time& /*time*/, const rclcpp::Duration& /*period*/) {
+  // Gravity feedforward from the measured position, so the PD only has to
+  // correct tracking error instead of also holding the arm up.
+  gravity_tau_.assign(ARM_DOF, 0.0);
+  if (gravity_ready_) {
+    gravity_model_.compute(pos_states_, gravity_tau_);
+    for (size_t i = 0; i < ARM_DOF; ++i) {
+      gravity_tau_[i] =
+          std::clamp(gravity_comp_gain_ * gravity_tau_[i],
+                     -GRAVITY_TAU_LIMIT[i], GRAVITY_TAU_LIMIT[i]);
+    }
+  }
+
   // Control arm motors with MIT control
   std::vector<openarm::damiao_motor::MITParam> arm_params;
   for (size_t i = 0; i < ARM_DOF; ++i) {
-    arm_params.push_back(
-        {kp_[i], kd_[i], pos_commands_[i], vel_commands_[i], tau_commands_[i]});
+    arm_params.push_back({kp_[i], kd_[i], pos_commands_[i], vel_commands_[i],
+                          tau_commands_[i] + gravity_tau_[i]});
   }
   openarm_->get_arm().mit_control_all(arm_params);
   // Control gripper if enabled
